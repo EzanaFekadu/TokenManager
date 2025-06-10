@@ -1,169 +1,185 @@
 package src;
 
-
-import javax.crypto.SecretKey;
-import java.time.Instant;
-import java.util.List;
 import java.security.GeneralSecurityException;
 import java.sql.SQLException;
+import java.time.Instant;
+import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import javax.crypto.SecretKey;
 
 public class Main {
 
-    public static void main(String[] args) { // Catch exceptions at a higher level
-        try {
-            // Ensure the SQLite JDBC driver is loaded
-            Class.forName("org.sqlite.JDBC");
-            System.out.println("SQLite JDBC driver loaded.");
+    private static final Logger logger = Logger.getLogger(Main.class.getName());
 
-            // --- Key Management (Example: Generating a new key each time - NOT SECURE FOR PRODUCTION) ---
+    public static void main(String[] args) {
+        try {
+            Class.forName("org.sqlite.JDBC");
+            logger.info("SQLite JDBC driver loaded.");
+
             SecretKey key = CryptoUtils.generateKey();
             String base64Key = CryptoUtils.keyToBase64(key);
-            System.out.println("Generated new encryption key (Base64): " + base64Key);
-            // In a real app, you would load this key securely, not generate it here.
+            logger.log(Level.INFO, "Generated new encryption key (Base64): {0}", base64Key);
 
-            // Ensure the database table exists
             DatabaseManager.createTokensTable();
 
-            // --- Test Insert Operation ---
-            System.out.println("\n--- Testing Insert Operation ---");
-            TokenEntry newToken = new TokenEntry(
-                    "MySecureToken",
-                    "MyService",
-                    "super-secret-token",
-                    Instant.now().plusSeconds(3600), // valid for 1 hour
-                    "{\"info\":\"sample metadata\"}",
-                    "Bearer",
-                    key // Pass the encryption key
-            );
-
-            // Insert the token and get the object with the generated ID
-            TokenEntry insertedToken = DatabaseManager.insertToken(newToken, key); // Pass key for return object creation
+            TokenEntry insertedToken = testInsertOperation(key);
 
             if (insertedToken != null) {
-                System.out.println("Token stored securely in database with ID: " + insertedToken.getId());
-
-                // --- Test Retrieve by ID Operation ---
-                System.out.println("\n--- Testing Retrieve by ID Operation ---");
-                System.out.println("Retrieving token with ID: " + insertedToken.getId());
-                TokenEntry retrievedToken = DatabaseManager.getTokenById(insertedToken.getId()); // Get the object directly
-
+                TokenEntry retrievedToken = testRetrieveByIdOperation(insertedToken, key);
                 if (retrievedToken != null) {
-                    // Decrypt the token value using the key
-                    String plaintextToken = retrievedToken.getDecryptedToken(key);
-
-                    System.out.println("Decrypted token retrieved: " + plaintextToken);
-                    System.out.println("Retrieved Token Details: " + retrievedToken); // Use the updated toString()
-
-                    // --- Test Update Operation ---
-                    System.out.println("\n--- Testing Update Operation ---");
-                    System.out.println("Attempting to update token with ID: " + retrievedToken.getId());
-                    // Create a *new* TokenEntry with updated values (immutability)
-                    TokenEntry tokenToUpdate = new TokenEntry(
-                            retrievedToken.getId(), // Use the existing ID
-                            "Updated Token Name",
-                            "Updated Service",
-                            retrievedToken.getEncryptedTokenWithIV(), // Keep the existing encrypted value (or re-encrypt if changing plain text)
-                            Instant.now().plusSeconds(7200), // Update expiration
-                            "{\"info\":\"updated metadata\"}",
-                            "Updated Type"
-                    );
-                    boolean updated = DatabaseManager.updateToken(tokenToUpdate);
-                    System.out.println("Update successful: " + updated);
-
-                    // Verify the update
-                    System.out.println("\nVerifying update by retrieving again...");
-                    TokenEntry verifiedToken = DatabaseManager.getTokenById(tokenToUpdate.getId());
-                    if (verifiedToken != null) {
-                        System.out.println("Verified Updated Token: " + verifiedToken);
-                    }
-
-                } else {
-                    System.out.println("Token with ID " + insertedToken.getId() + " not found after retrieval.");
+                    testUpdateOperation(retrievedToken);
                 }
-
-                // --- Test Get All Tokens Operation ---
-                System.out.println("\n--- Testing Get All Tokens Operation ---");
-                List<TokenEntry> allTokens = DatabaseManager.getAllTokens();
-                System.out.println("All Tokens:");
-                if (allTokens.isEmpty()) {
-                    System.out.println("No tokens found.");
-                } else {
-                    for (TokenEntry token : allTokens) {
-                        System.out.println(token); // Prints the masked encrypted value
-                        // To print the decrypted value for all, you would decrypt each one here
-                        // try {
-                        //     System.out.println(" Decrypted: " + token.getDecryptedToken(key));
-                        // } catch (GeneralSecurityException e) {
-                        //     System.err.println(" Error decrypting token with ID " + token.getId() + ": " + e.getMessage());
-                        // }
-                    }
-                }
-
-                // --- Test Get Expired Tokens Operation ---
-                System.out.println("\n--- Testing Get Expired Tokens Operation ---");
-                // Insert an expired token for testing
-                TokenEntry expiredToken = new TokenEntry(
-                        "ExpiredTokenTest", "TestService", "exp-val", Instant.now().minusSeconds(10), null, "Test", key
-                );
-                DatabaseManager.insertToken(expiredToken, key); // Insert it
-
-                List<TokenEntry> expiredTokens = DatabaseManager.getExpiredTokens();
-                System.out.println("Expired Tokens:");
-                if (expiredTokens.isEmpty()) {
-                    System.out.println("No expired tokens found.");
-                } else {
-                    for (TokenEntry token : expiredTokens) {
-                        System.out.println(token);
-                        try {
-                            System.out.println(" Decrypted: " + token.getDecryptedToken(key));
-                        } catch (GeneralSecurityException e) {
-                            System.err.println(" Error decrypting expired token with ID " + token.getId() + ": " + e.getMessage());
-                        }
-                    }
-                }
-
-                // --- Test Delete Operation ---
-                System.out.println("\n--- Testing Delete Operation ---");
-                // Find an ID to delete (let's delete the 'expiredToken')
-                // We need its ID. If insertToken returned the object with ID, we could use that.
-                // Alternatively, we can retrieve all tokens and pick one.
-                List<TokenEntry> tokensToDelete = DatabaseManager.getAllTokens();
-                if (!tokensToDelete.isEmpty()) {
-                    int idToDelete = tokensToDelete.get(tokensToDelete.size() - 1).getId(); // Delete the last inserted (expired) token
-                    System.out.println("Attempting to delete token with ID: " + idToDelete);
-                    boolean deleted = DatabaseManager.deleteToken(idToDelete);
-                    System.out.println("Deletion successful: " + deleted);
-
-                    // Verify deletion
-                    System.out.println("\nTokens after deletion:");
-                    List<TokenEntry> tokensAfterDelete = DatabaseManager.getAllTokens();
-                    if (tokensAfterDelete.isEmpty()) {
-                        System.out.println("No tokens found.");
-                    } else {
-                        for (TokenEntry token : tokensAfterDelete) {
-                            System.out.println(token);
-                        }
-                    }
-                } else {
-                    System.out.println("No tokens to delete.");
-                }
-
+                testGetAllTokensOperation();
+                testGetExpiredTokensOperation(key);
+                testDeleteOperation();
             } else {
-                System.out.println("Failed to insert token.");
+                logger.warning("Failed to insert token.");
             }
 
         } catch (ClassNotFoundException e) {
-            System.err.println("Error: SQLite JDBC driver not found.");
-            e.printStackTrace();
+            logger.log(Level.SEVERE, "Error: SQLite JDBC driver not found.", e);
         } catch (SQLException e) {
-            System.err.println("Database error: " + e.getMessage());
-            e.printStackTrace();
+            logger.log(Level.SEVERE, e, () -> "Database error: " + e.getMessage());
         } catch (GeneralSecurityException e) {
-            System.err.println("Security error: " + e.getMessage());
-            e.printStackTrace();
+            logger.log(Level.SEVERE, e, () -> "Security error: " + e.getMessage());
         } catch (Exception e) {
-            System.err.println("An unexpected error occurred: " + e.getMessage());
-            e.printStackTrace();
+            logger.log(Level.SEVERE, "An unexpected error occurred.", e);
+        }
+    }
+
+    private static TokenEntry testInsertOperation(SecretKey key) throws GeneralSecurityException, SQLException {
+        logger.info("\n--- Testing Insert Operation ---");
+        TokenEntry newToken = new TokenEntry(
+                "MySecureToken",
+                "MyService",
+                "super-secret-token",
+                Instant.now().plusSeconds(3600), // valid for 1 hour
+                "{\"info\":\"sample metadata\"}",
+                "Bearer",
+                key // Pass the encryption key
+        );
+        TokenEntry insertedToken = DatabaseManager.insertToken(newToken, key); // Pass key for return object creation
+        if (insertedToken != null) {
+            logger.log(Level.INFO, "Token stored securely in database with ID: {0}", insertedToken.getId());
+        }
+        return insertedToken;
+    }
+
+    private static TokenEntry testRetrieveByIdOperation(TokenEntry insertedToken, SecretKey key) throws GeneralSecurityException, SQLException {
+        logger.info("\n--- Testing Retrieve by ID Operation ---");
+        logger.log(Level.INFO, "Retrieving token with ID: {0}", insertedToken.getId());
+        TokenEntry retrievedToken = DatabaseManager.getTokenById(insertedToken.getId()); // Get the object directly
+
+        if (retrievedToken != null) {
+            // Decrypt the token value using the key
+            String plaintextToken = retrievedToken.getDecryptedToken(key);
+
+            logger.log(Level.INFO, "Decrypted token retrieved: {0}", plaintextToken);
+            logger.log(Level.INFO, "Retrieved Token Details: {0}", retrievedToken); // Use the updated toString()
+        } else {
+            logger.log(Level.WARNING, "Token with ID {0} not found after retrieval.", insertedToken.getId());
+        }
+        return retrievedToken;
+    }
+
+    private static void testUpdateOperation(TokenEntry retrievedToken) throws SQLException, GeneralSecurityException {
+        logger.info("\n--- Testing Update Operation ---");
+        logger.log(Level.INFO, "Attempting to update token with ID: {0}", retrievedToken.getId());
+        // Create a *new* TokenEntry with updated values (immutability)
+        TokenEntry tokenToUpdate = new TokenEntry(
+                retrievedToken.getId(), // Use the existing ID
+                "Updated Token Name",
+                "Updated Service",
+                retrievedToken.getEncryptedTokenWithIV(), // Keep the existing encrypted value (or re-encrypt if changing plain text)
+                Instant.now().plusSeconds(7200), // Update expiration
+                "{\"info\":\"updated metadata\"}",
+                "Updated Type"
+        );
+        boolean updated = DatabaseManager.updateToken(tokenToUpdate);
+        logger.log(Level.INFO, "Update successful: {0}", updated);
+
+        // Verify the update
+        logger.info("\nVerifying update by retrieving again...");
+        TokenEntry verifiedToken = DatabaseManager.getTokenById(tokenToUpdate.getId());
+        if (verifiedToken != null) {
+            logger.log(Level.INFO, "Verified Updated Token: {0}", verifiedToken);
+        }
+    }
+
+    private static void testGetAllTokensOperation() throws SQLException, GeneralSecurityException {
+        logger.info("\n--- Testing Get All Tokens Operation ---");
+        List<TokenEntry> allTokens = DatabaseManager.getAllTokens();
+        logger.info("All Tokens:");
+        if (allTokens.isEmpty()) {
+            logger.info("No tokens found.");
+        } else {
+            for (TokenEntry token : allTokens) {
+                if (logger.isLoggable(Level.INFO)) {
+                    logger.info(token.toString());
+                } // Prints the masked encrypted value
+                
+            }
+        }
+    }
+
+    private static void testGetExpiredTokensOperation(SecretKey key) throws GeneralSecurityException, SQLException {
+        logger.info("\n--- Testing Get Expired Tokens Operation ---");
+        // Insert an expired token for testing
+        TokenEntry expiredToken = new TokenEntry(
+                "ExpiredTokenTest", "TestService", "exp-val", Instant.now().minusSeconds(10), null, "Test", key
+        );
+        DatabaseManager.insertToken(expiredToken, key); // Insert it
+
+        List<TokenEntry> expiredTokens = DatabaseManager.getExpiredTokens();
+        logger.info("Expired Tokens:");
+        if (expiredTokens.isEmpty()) {
+            logger.info("No expired tokens found.");
+        } else {
+            for (TokenEntry token : expiredTokens) {
+                if (logger.isLoggable(Level.INFO)) {
+                            logger.info(token.toString());
+                        }
+                    
+                
+                try {
+                    if (logger.isLoggable(Level.INFO)) {
+                        logger.log(Level.INFO, " Decrypted: {0}", token.getDecryptedToken(key));
+                    }
+                } catch (GeneralSecurityException e) {
+                    logger.log(Level.SEVERE, 
+                        "Error decrypting expired token with ID {0}: {1}", 
+                        new Object[]{token.getId(), e.getMessage()}
+                    );
+                }
+            }
+        }
+    }
+
+    private static void testDeleteOperation() throws SQLException, GeneralSecurityException {
+        logger.info("\n--- Testing Delete Operation ---");
+        List<TokenEntry> tokensToDelete = DatabaseManager.getAllTokens();
+        if (!tokensToDelete.isEmpty()) {
+            int idToDelete = tokensToDelete.get(tokensToDelete.size() - 1).getId(); // Delete the last inserted (expired) token
+            logger.log(Level.INFO, "Attempting to delete token with ID: {0}", idToDelete);
+            boolean deleted = DatabaseManager.deleteToken(idToDelete);
+            logger.log(Level.INFO, "Deletion successful: {0}", deleted);
+
+            // Verify deletion
+            logger.info("\nTokens after deletion:");
+            List<TokenEntry> tokensAfterDelete = DatabaseManager.getAllTokens();
+            if (tokensAfterDelete.isEmpty()) {
+                logger.info("No tokens found.");
+            } else {
+                for (TokenEntry token : tokensAfterDelete) {
+                    if (logger.isLoggable(Level.INFO)) {
+                            logger.info(token.toString());
+                        }
+                }
+            }
+        } else {
+            logger.info("No tokens to delete.");
         }
     }
 }

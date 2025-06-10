@@ -9,9 +9,21 @@ import javax.crypto.spec.SecretKeySpec;
 
 import java.util.Base64;
 import java.security.SecureRandom;
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException; // More specific exception
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import javax.crypto.BadPaddingException;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
 
 public class CryptoUtils {
+
+    // Private constructor to prevent instantiation
+    private CryptoUtils() {
+        throw new UnsupportedOperationException("Utility class");
+    }
 
     private static final String ALGORITHM = "AES";
     // Using AES in GCM mode with NoPadding. GCM is an authenticated encryption mode.
@@ -76,7 +88,7 @@ public class CryptoUtils {
 
             cipher.init(Cipher.ENCRYPT_MODE, key, gcmSpec);
 
-            byte[] encryptedBytes = cipher.doFinal(plainText.getBytes("UTF-8"));
+            byte[] encryptedBytes = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8));
 
             // Prepend the IV to the encrypted data before Base64 encoding
             byte[] encryptedBytesWithIV = new byte[ivBytes.length + encryptedBytes.length];
@@ -85,7 +97,7 @@ public class CryptoUtils {
 
             return Base64.getEncoder().encodeToString(encryptedBytesWithIV);
 
-        } catch (Exception e) {
+        } catch (InvalidAlgorithmParameterException | InvalidKeyException | NoSuchAlgorithmException | BadPaddingException | IllegalBlockSizeException | NoSuchPaddingException e) {
             // Wrap specific exceptions in a more general security exception
             throw new GeneralSecurityException("Encryption failed", e);
         }
@@ -122,9 +134,9 @@ public class CryptoUtils {
 
             byte[] decryptedBytes = cipher.doFinal(encryptedBytes); // This will check the GCM tag
 
-            return new String(decryptedBytes, "UTF-8");
+            return new String(decryptedBytes, StandardCharsets.UTF_8);
 
-        } catch (Exception e) {
+        } catch (InvalidAlgorithmParameterException | InvalidKeyException | NoSuchAlgorithmException | BadPaddingException | IllegalBlockSizeException | NoSuchPaddingException e) {
              // Wrap specific exceptions in a more general security exception.
              // This can include BadPaddingException or AEADBadTagException
              // if the data was tampered with or the key is incorrect.

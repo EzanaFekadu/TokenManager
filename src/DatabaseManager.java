@@ -14,7 +14,13 @@ import java.security.GeneralSecurityException; // For decryption errors
 
 public class DatabaseManager {
 
+    // Private constructor to prevent instantiation
+    private DatabaseManager() {
+        // This class should not be instantiated
+    }
+
     private static final String DATABASE_URL = "jdbc:sqlite:token_management.db";
+    private static final java.util.logging.Logger LOGGER = java.util.logging.Logger.getLogger(DatabaseManager.class.getName());
 
     /**
      * Establishes a connection to the SQLite database.
@@ -54,7 +60,7 @@ public class DatabaseManager {
             stmt.execute(sql);
             System.out.println("Table 'tokens' checked/created successfully."); // Using System.out for now
         } catch (SQLException e) {
-             System.err.println("Error creating table: " + e.getMessage()); // Using System.err for errors for now
+             LOGGER.log(java.util.logging.Level.SEVERE, "Error creating table", e);
              throw e; // Re-throw the exception to the caller
         }
     }
@@ -126,7 +132,7 @@ public class DatabaseManager {
                         );
                     }
                 }
-            } else {
+                LOGGER.severe("Insert operation did not affect any rows.");
                 System.err.println("Insert operation did not affect any rows.");
             }
 
